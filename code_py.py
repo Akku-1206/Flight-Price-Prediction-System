@@ -1,11 +1,9 @@
-# -*- coding: utf-8 -*-
-Importing the libraries
-
-
+import streamlit as st
 import pandas as pd
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
+
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.compose import ColumnTransformer
@@ -13,174 +11,128 @@ from sklearn.linear_model import LinearRegression
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import RandomForestRegressor
 from xgboost import XGBRegressor
-from sklearn.metrics import r2_score, mean_squared_error,mean_absolute_error
+from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 
-"""# Loading the data"""
+st.set_page_config(layout="wide")
+st.title("Goibibo Flight Price Prediction App ✈️")
 
-df = pd.read_csv("/content/goibibo_flights_data.csv")
-df
+# --- File Upload ---
+uploaded_file = st.file_uploader("Upload CSV file", type=['csv'])
+if uploaded_file is not None:
+    df = pd.read_csv(uploaded_file)
 
-"""Check for missing value"""
+    st.subheader("Raw Data")
+    st.dataframe(df.head())
 
-df.isnull().sum()
+    # Data Cleaning
+    df = df.drop(['Unnamed: 11', 'Unnamed: 12'], axis=1, errors='ignore')
+    df = df.dropna(axis=1)
 
-"""Drop column Unnamed: 11 and  Unnamed: 12"""
+    # Convert Duration to Minutes
+    def convert_to_minutes(x):
+        try:
+            hours, minutes = x.split(" ")
+            hours = hours.replace("h", "")
+            minutes = minutes.replace("m", "")
+        except:
+            hours = x.replace("h", "")
+            minutes = "0"
+        hours = float(hours) if hours else 0
+        minutes = float(minutes) if minutes else 0
+        return hours * 60 + minutes
 
-df = df.drop(['Unnamed: 11', 'Unnamed: 12'], axis=1)
-df
+    def clean_stops(x):
+        if 'non-stop' in x:
+            return 0
+        elif '1' in x:
+            return 1
+        elif '2' in x:
+            return 2
+        elif '3' in x:
+            return 3
+        elif '4' in x:
+            return 4
+        elif '5' in x:
+            return 5
+        elif '6' in x:
+            return 6
+        else:
+            return np.nan
 
-df=df.dropna(axis=1)
-df
+    df['flight date'] = pd.to_datetime(df['flight date'])
+    df['duration'] = df['duration'].apply(convert_to_minutes)
+    df['stops'] = df['stops'].apply(clean_stops)
+    df['Month'] = df['flight date'].dt.month
+    df['price'] = df['price'].apply(lambda s: float(str(s).replace(',', '')))
 
-df.dtypes
+    df.drop(columns=['from', 'to', 'dep_time', 'arr_time', 'flight date', 'flight_num'], inplace=True, errors='ignore')
 
-"""Extract Month from Date
+    st.subheader("Cleaned Data Sample")
+    st.dataframe(df.head())
 
-Extract Hours from Departure Time
+    # EDA section
+    st.subheader("📊 Exploratory Data Analysis")
+    eda_option = st.selectbox("Choose EDA Plot", ["Airline vs Price", "Price over Months", "Class Impact", "Correlation Heatmap"])
 
-Convert duration to Minutes
+    if eda_option == "Airline vs Price":
+        df2 = df.groupby('airline').agg({"price": "mean"}).reset_index().sort_values(by='price')
+        fig = plt.figure(figsize=(10,5))
+        sns.barplot(x='airline', y='price', data=df2)
+        plt.xticks(rotation=45)
+        st.pyplot(fig)
 
-Clean "Stops" Column
-"""
+    elif eda_option == "Price over Months":
+        df2 = df.groupby(["Month"]).agg({"price": "mean"}).reset_index()
+        fig = plt.figure()
+        sns.lineplot(x='Month', y='price', data=df2, marker="o")
+        st.pyplot(fig)
 
-# convert_to_minutes( x ) : This function will convert duration column to minutes
-# clean_stops( x ) : This function will return Number of Stops of the flight
+    elif eda_option == "Class Impact":
+        df2 = df.groupby(["airline", "class"]).agg({"price": "mean"}).reset_index()
+        fig = plt.figure(figsize=(10,5))
+        sns.barplot(x='class', y='price', hue='airline', data=df2)
+        st.pyplot(fig)
 
-def convert_to_minutes(x):
-    hours, minutes = x.split(" ")
-    hours = hours.replace("h","")
-    minutes = minutes.replace("m", "")
-    if len(hours)==0:
-        hours = 0
-    elif len(minutes)==0:
-        minutes =0
-    hours = float(hours)
-    minutes = float(minutes)
-    return hours*60+minutes
-def clean_stops(x):
-    if 'non-stop' in x:
-        return 0
-    elif '1-' in x:
-        return 1
-    elif '2' in x:
-        return 2
-    elif '3' in x:
-        return 3
-    elif '4' in x:
-        return 4
-    elif '5' in x:
-        return 5
-    elif '6' in x:
-        return 6
+    elif eda_option == "Correlation Heatmap":
+        fig = plt.figure()
+        sns.heatmap(df[['duration', 'price', 'stops', 'Month']].corr().abs(), annot=True)
+        st.pyplot(fig)
 
-"""Apply Transformations in the columns"""
+    # Modeling
+    st.subheader("🤖 Model Training & Evaluation")
 
-df['flight date'] = pd.to_datetime(df['flight date'])
-df['duration'] = df['duration'].apply(lambda s:convert_to_minutes(s))
+    if st.button("Train Models"):
+        X = df.drop(columns='price')
+        Y = df['price']
+        X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.25, random_state=42)
 
-df
+        transformer = ColumnTransformer([
+            ("encode", OneHotEncoder(), ['airline', 'class']),
+            ("standardise", StandardScaler(), ['Month', 'stops', 'duration'])
+        ], remainder='passthrough')
 
-"""clean stop columns"""
+        X_train_transformed = transformer.fit_transform(X_train)
+        X_test_transformed = transformer.transform(X_test)
 
-df['stops']=df['stops'].apply(lambda s:clean_stops(s))
+        models = {
+            "Random Forest Regressor": RandomForestRegressor(),
+            "Decision Tree Regressor": DecisionTreeRegressor(),
+            "Linear Regressor": LinearRegression(),
+            "XGBoost Regression": XGBRegressor()
+        }
 
-df
+        results = []
 
-"""Extraction of Month from Flight Date
+        for model_name, model in models.items():
+            model.fit(X_train_transformed, Y_train)
+            y_pred = model.predict(X_test_transformed)
 
+            results.append({
+                "Model": model_name,
+                "R2 Score": round(r2_score(Y_test, y_pred), 4),
+                "MSE": round(mean_squared_error(Y_test, y_pred), 2),
+                "MAE": round(mean_absolute_error(Y_test, y_pred), 2)
+            })
 
-extracting Month from Flight Date as this will help me understand in which month prices spike
-Price column as a comma, we will  remove it and convert it into Float
-"""
-
-# Extraction of Month from Flight Date
-
-df['flight date']=pd.to_datetime(df['flight date'])
-df['Month']=df['flight date'].dt.month
-df['price']=df['price'].apply(lambda s:float(s.replace(',','')))
-df
-
-"""Drop Unnecessary Columns
-
-
-Drop "From" and "To" Column as Price does not depend on cities
-
-Drop Departure Time and Arrival Time because we have the flight duration column
-
-Remove Flight Number Column because we have airline column
-"""
-
-# drop unnecessay columns
-df.drop(columns=['from','to','dep_time','arr_time','flight date','flight_num'],inplace=True)
-
-df
-
-df2=df.groupby('airline').agg({"price":"mean"}).reset_index().sort_values(by='price')
-
-
-sns.barplot(x='airline',y='price',data=df2)
-
-# price trends over months
-
-df2=df.groupby(["Month"]).agg({"price":"mean"}).reset_index().sort_values(by='price')
-sns.lineplot(x='Month',y='price',data=df2)
-
-sns.pairplot(df2[['price',"Month"]])
-
-"""Direct Flights are cheapest may be due to low distance
-
-Flights with 1 stop are expensive
-"""
-
-# Impact of class on Price
-
-df2=df.groupby(["airline","class"]).agg({"price":"mean"}).reset_index().sort_values(by='price')
-sns.barplot(x='class',y='price',data=df2,hue='airline')
-
-# Checkig correaltion values
-sns.heatmap(df[['duration', 'price', 'stops', 'Month']].corr().abs(),annot=True)
-
-# Data Standardization and Encoding
-
-#I will encode Airline and Class Columns using OneHotEncoding
-#I will standardize numerical columns -'Month','stops','duration'
-
-X=df.drop(columns='price')
-Y=df['price']
-X_train,X_test,Y_train,Y_test = train_test_split(X,Y,test_size=0.25,random_state=42)
-
-transformer = ColumnTransformer(
-[
-    ("encode",OneHotEncoder(),['airline','class']),
-    ("standardise",StandardScaler(),['Month','stops','duration'])
-
-],remainder='passthrough')
-
-X_train_transformed = transformer.fit_transform(X_train)
-X_test_transformed = transformer.transform(X_test)
-
-# Model Training and Evaluation
-
-models = {"Random Forest Regressor":RandomForestRegressor(),
-         "Decision Tree Regressor":DecisionTreeRegressor(),
-         "Linear Regressor":LinearRegression(),
-         "XGBoost Regression":XGBRegressor()}
-
-r2_scores=[]
-mean_squared = []
-mean_absolute = []
-model_list =[]
-for model_name,model in models.items():
-    model.fit(X_train_transformed,Y_train)
-    ypred = model.predict(X_test_transformed)
-    r2_scores.append(r2_score(Y_test,ypred))
-    mean_squared.append(mean_squared_error(Y_test,ypred))
-    mean_absolute.append(mean_absolute_error(Y_test,ypred))
-    model_list.append(model_name)
-
-accuracy_data = pd.DataFrame()
-accuracy_data['Model ']=model_list
-accuracy_data['R2 Score']=r2_scores
-
-accuracy_data
-
+        st.subheader("📈 Model Performance")
+        st.dataframe(pd.DataFrame(results).set_index("Model"))
