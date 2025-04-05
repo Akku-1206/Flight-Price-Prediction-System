@@ -13,6 +13,10 @@ from sklearn.ensemble import RandomForestRegressor
 from xgboost import XGBRegressor
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 
+
+print("sklearn metrics imported successfully")
+
+
 st.set_page_config(layout="wide")
 st.title("Goibibo Flight Price Prediction App ✈️")
 
