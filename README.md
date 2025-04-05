@@ -18,7 +18,7 @@ A machine learning web application that predicts the price of a flight ticket ba
 - **Machine Learning**: scikit-learn, pandas, numpy
 - **Web Framework**: Flask / Streamlit
 - **Visualization**: matplotlib, seaborn
-- **Deployment**: Heroku / Render / Streamlit Cloud
+- **Deployment**: Streamlit Cloud
 
 ---
 
